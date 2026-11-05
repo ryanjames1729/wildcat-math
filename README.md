@@ -4,6 +4,7 @@ A single-page math practice game for students. Pick a level, play 10 rounds, ear
 
 - **Level 1: Prime or composite** – sort numbers from 2 to 100 and prove composites with a factor pair.
 - **Level 2: Fraction fix-up** – add and subtract fractions and write answers in simplest terms.
+- **Level 3: Fraction times** – multiply fractions (and whole numbers by fractions) and write answers in simplest terms.
 
 Best scores and collected cards are saved in the player's browser (`localStorage`); nothing is sent to a server.
 

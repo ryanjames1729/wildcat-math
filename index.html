@@ -460,6 +460,8 @@
   }
   .btn.level.l1 { background: color-mix(in srgb, var(--blue) 18%, var(--tile)); }
   .btn.level.l2 { background: color-mix(in srgb, var(--yellow) 32%, var(--tile)); }
+  .btn.level.l3 { background: color-mix(in srgb, var(--power) 18%, var(--tile)); }
+  .whole { display: inline-block; }
 
   /* fractions */
   .tile.eqtile {
@@ -566,7 +568,12 @@
   }
 
   /* ---------- best score (optional, per browser) ---------- */
-  function bestKey(m) { return (m || MODE) === 'fractions' ? 'fraction-game-best-total' : 'prime-game-best-total'; }
+  function bestKey(m) {
+    m = m || MODE;
+    return m === 'fractions' ? 'fraction-game-best-total'
+      : m === 'multiply' ? 'fraction-multiply-best-total'
+      : 'prime-game-best-total';
+  }
   function getBest(m) {
     try { var v = localStorage.getItem(bestKey(m)); return v ? parseInt(v, 10) : null; }
     catch (e) { return null; }
@@ -698,6 +705,7 @@
     titleEl.textContent = 'Wildcat math';
     var bp = getBest('primes');
     var bf = getBest('fractions');
+    var bm = getBest('multiply');
     app.innerHTML =
       '<section class="panel">' +
         '<h2>Pick a level</h2>' +
@@ -707,10 +715,13 @@
             '<span class="sub">Sort the numbers 2 to 100 and name two factors.' + (bp !== null ? ' Best: ' + bp + ' points.' : '') + '</span></button>' +
           '<button class="btn level l2" id="lv2">Level 2: Fraction fix-up' +
             '<span class="sub">Add and subtract fractions, then shrink the answer to simplest terms.' + (bf !== null ? ' Best: ' + bf + ' points.' : '') + '</span></button>' +
+          '<button class="btn level l3" id="lv3">Level 3: Fraction times' +
+            '<span class="sub">Multiply fractions and whole numbers, then shrink the answer to simplest terms.' + (bm !== null ? ' Best: ' + bm + ' points.' : '') + '</span></button>' +
         '</div>' +
       '</section>';
     document.getElementById('lv1').addEventListener('click', showIntro);
     document.getElementById('lv2').addEventListener('click', showFracIntro);
+    document.getElementById('lv3').addEventListener('click', showMulIntro);
     document.getElementById('lv1').focus({ preventScroll: true });
   }
 
@@ -741,8 +752,35 @@
     document.getElementById('start').focus();
   }
 
+  function showMulIntro() {
+    MODE = 'multiply';
+    titleEl.textContent = 'Fraction times';
+    bar.hidden = true;
+    var best = getBest();
+    app.innerHTML =
+      '<section class="panel">' +
+        '<h2>How it works</h2>' +
+        '<p>Multiply two fractions, then type your answer in simplest terms.</p>' +
+        '<div class="defs">' +
+          '<div class="def p"><b>Tops times tops</b><span>Multiply the top numbers together and the bottom numbers together. 2/3 × 3/4 = 6/12, which simplifies to 1/2.</span></div>' +
+          '<div class="def c"><b>Whole numbers</b><span>A whole number is a fraction over 1. 3 × 2/5 is the same as 3/1 × 2/5.</span></div>' +
+        '</div>' +
+        '<p><b>Scoring:</b> 1 point for each correct answer. Answers bigger than 1, like 6/5, are fine as they are. If your amount is right but not simplified, you can fix it. Then come the bonuses:</p>' +
+        '<div class="defs">' +
+          '<div class="def s"><b>🔥 Streak</b><span>Get problems right in a row. 3 in a row earns +1 bonus per round. 5 or more earns +2.</span></div>' +
+          '<div class="def w"><b>✂️ Sharp claws</b><span>When an answer can be simplified, simplify it yourself on the first try for +2.</span></div>' +
+        '</div>' +
+        (best !== null ? '<p>Your best game: <b>' + best + ' points</b></p>' : '') +
+        '<p>You can earn Wildcat cards here too. The better you do, the fiercer the cat!</p>' +
+        '<div class="actions"><button class="btn go" id="start">Start ' + TOTAL + ' problems</button><button class="btn ghost" id="back">Change level</button></div>' +
+      '</section>';
+    document.getElementById('start').addEventListener('click', startGame);
+    document.getElementById('back').addEventListener('click', showMenu);
+    document.getElementById('start').focus();
+  }
+
   function startGame() {
-    if (MODE === 'fractions') { startFractions(); return; }
+    if (MODE !== 'primes') { startFractions(); return; }
     var nums = pickNumbers();
     var max = 0;
     nums.forEach(function (n) { max += isPrime(n) ? 1 : 2; });
@@ -755,7 +793,7 @@
   }
 
   function renderRound() {
-    if (MODE === 'fractions') { renderFracRound(); return; }
+    if (MODE !== 'primes') { renderFracRound(); return; }
     var n = G.nums[G.i];
     G.attempts = 0;
     renderBar();
@@ -914,7 +952,7 @@
 
   function nextButton() {
     var last = G.i === TOTAL - 1;
-    return '<div class="next"><button class="btn go" id="next">' + (last ? 'See my score' : (MODE === 'fractions' ? 'Next problem' : 'Next number')) + '</button></div>';
+    return '<div class="next"><button class="btn go" id="next">' + (last ? 'See my score' : (MODE !== 'primes' ? 'Next problem' : 'Next number')) + '</button></div>';
   }
   function wireNext() {
     var btn = document.getElementById('next');
@@ -975,7 +1013,56 @@
     return p;
   }
 
+  function buildMul(x1, y1, x2, y2) {
+    var raw = x1 * x2, L = y1 * y2, g = gcd(raw, L);
+    return {
+      kind: 'mul', x1: x1, y1: y1, x2: x2, y2: y2, op: '×', L: L,
+      raw: raw, g: g, sn: raw / g, sd: L / g, needs: g > 1,
+      key: x1 + '/' + y1 + 'x' + x2 + '/' + y2
+    };
+  }
+  function rnd(lo, hi) { return lo + Math.floor(Math.random() * (hi - lo + 1)); }
+
+  function genMul(stage, want) {
+    var x1, y1, x2, y2;
+    if (stage === 1) {
+      y1 = rnd(2, 6); y2 = rnd(2, 6);
+      x1 = rnd(1, y1 - 1); x2 = rnd(1, y2 - 1);
+    } else if (stage === 2) {
+      y1 = rnd(3, 10); y2 = rnd(3, 10);
+      x1 = rnd(1, y1 - 1); x2 = rnd(1, y2 - 1);
+    } else {
+      x1 = rnd(2, 6); y1 = 1;
+      y2 = rnd(3, 10); x2 = rnd(1, y2 - 1);
+      if (Math.random() < 0.5) { var tx = x1; x1 = x2; x2 = tx; var ty = y1; y1 = y2; y2 = ty; }
+    }
+    var p = buildMul(x1, y1, x2, y2);
+    if (p.sd === 1) return null;
+    if (want !== null && p.needs !== want) return null;
+    return p;
+  }
+
+  function makeMulProblems() {
+    var out = [], seen = {};
+    for (var r = 0; r < TOTAL; r++) {
+      var stage = r < 3 ? 1 : r < 6 ? 2 : 3;
+      var want = stage === 2 ? Math.random() < 0.8 : Math.random() < 0.55;
+      var p = null, tries = 0;
+      while (!p && tries < 400) {
+        tries++;
+        var cand = genMul(stage, tries > 200 ? null : want);
+        if (cand && !seen[cand.key]) p = cand;
+      }
+      if (!p) { p = buildMul(1, 2, 1, 3); }
+      p.stage = stage;
+      seen[p.key] = true;
+      out.push(p);
+    }
+    return out;
+  }
+
   function makeProblems() {
+    if (MODE === 'multiply') return makeMulProblems();
     var out = [], seen = {};
     for (var r = 0; r < TOTAL; r++) {
       var stage = r < 3 ? 1 : r < 6 ? 2 : 3;
@@ -994,17 +1081,31 @@
     return out;
   }
 
-  function stageLabel(s) {
+  function termText(x, y) { return y === 1 ? String(x) : x + '/' + y; }
+  function termHtml(x, y) { return y === 1 ? '<span class="whole">' + x + '</span>' : fracHtml(x, y); }
+  function termSpoken(x, y) { return y === 1 ? String(x) : x + ' over ' + y; }
+
+  function stageLabel(s, p) {
+    if (p && p.kind === 'mul') {
+      return s === 1 ? 'Multiply the tops, multiply the bottoms'
+        : s === 2 ? 'Bigger numbers: simplify the answer'
+        : 'A whole number times a fraction';
+    }
     return s === 1 ? 'Same bottom numbers'
       : s === 2 ? 'One bottom number fits into the other'
       : 'Different bottom numbers: find a common one';
   }
-  function fracText(p) { return p.x1 + '/' + p.y1 + ' ' + p.op + ' ' + p.x2 + '/' + p.y2; }
+  function fracText(p) { return termText(p.x1, p.y1) + ' ' + p.op + ' ' + termText(p.x2, p.y2); }
   function opWord(p) { return p.op === '+' ? 'add' : 'subtract'; }
 
   function workHtml(p) {
     var s;
-    if (p.y1 === p.y2) {
+    if (p.kind === 'mul') {
+      s = '';
+      if (p.y1 === 1) s += 'Write ' + p.x1 + ' as ' + p.x1 + '/1. ';
+      if (p.y2 === 1) s += 'Write ' + p.x2 + ' as ' + p.x2 + '/1. ';
+      s += 'Tops: ' + p.x1 + ' × ' + p.x2 + ' = ' + p.raw + '. Bottoms: ' + p.y1 + ' × ' + p.y2 + ' = ' + p.L + '. That makes ' + p.raw + '/' + p.L + '.';
+    } else if (p.y1 === p.y2) {
       s = p.x1 + '/' + p.y1 + ' ' + p.op + ' ' + p.x2 + '/' + p.y2 + ' = ' + p.raw + '/' + p.L;
     } else {
       s = 'Common bottom number ' + p.L + ': ' + p.e1 + '/' + p.L + ' ' + p.op + ' ' + p.e2 + '/' + p.L + ' = ' + p.raw + '/' + p.L;
@@ -1034,12 +1135,12 @@
     G.attempts = 0;
     G.nudges = 0;
     renderBar();
-    var spoken = p.x1 + ' over ' + p.y1 + (p.op === '+' ? ' plus ' : ' minus ') + p.x2 + ' over ' + p.y2;
+    var spoken = termSpoken(p.x1, p.y1) + (p.op === '+' ? ' plus ' : p.op === '×' ? ' times ' : ' minus ') + termSpoken(p.x2, p.y2);
     app.innerHTML =
       '<div class="tile-row"><div class="tile eqtile pop" role="img" aria-label="' + spoken + '">' +
-        fracHtml(p.x1, p.y1) + '<span class="sym" aria-hidden="true">' + p.op + '</span>' + fracHtml(p.x2, p.y2) +
+        termHtml(p.x1, p.y1) + '<span class="sym" aria-hidden="true">' + p.op + '</span>' + termHtml(p.x2, p.y2) +
       '</div></div>' +
-      '<p class="hint">' + stageLabel(p.stage) + '</p>' +
+      '<p class="hint">' + stageLabel(p.stage, p) + '</p>' +
       '<div class="stage" id="stage">' +
         '<p class="prompt">Solve it. Write the answer in simplest terms.</p>' +
         '<div class="eq">' +
@@ -1124,7 +1225,17 @@
       return;
     }
     var text;
-    if (d === p.y1 + p.y2) {
+    if (p.kind === 'mul') {
+      var wholeTip = p.y1 === 1 ? 'Write ' + p.x1 + ' as ' + p.x1 + '/1 first. '
+        : p.y2 === 1 ? 'Write ' + p.x2 + ' as ' + p.x2 + '/1 first. ' : '';
+      if (d === p.y1 + p.y2 || n === p.x1 + p.x2) {
+        text = 'Careful: this is multiplying, not adding. ' + wholeTip + 'Multiply the tops together and the bottoms together.';
+      } else if (G.attempts === 1) {
+        text = wholeTip + 'Multiply the tops (' + p.x1 + ' × ' + p.x2 + ') and the bottoms (' + p.y1 + ' × ' + p.y2 + ').';
+      } else {
+        text = 'Tops: ' + p.x1 + ' × ' + p.x2 + ' = ' + p.raw + '. Bottoms: ' + p.y1 + ' × ' + p.y2 + ' = ' + p.L + '. Simplify if you can.';
+      }
+    } else if (d === p.y1 + p.y2) {
       text = p.y1 === p.y2
         ? 'The bottom number stays the same when the pieces are already the same size. Only the tops change.'
         : 'Careful: don’t add the bottom numbers. They show the size of the pieces, so make the pieces match first.';
@@ -1173,6 +1284,9 @@
   ];
   TIERS[1].fline = 'You’ve unlocked the playful kitten! Great at chasing laser dots, getting better at chasing common denominators.';
   TIERS[4].fline = 'You’ve unlocked the mountain lion! Silent, speedy, and scary good at fractions.';
+  TIERS[1].mline = 'You’ve unlocked the playful kitten! Great at chasing laser dots, getting better at multiplying fractions.';
+  TIERS[4].mline = TIERS[4].line;
+  TIERS[5].mline = 'You’ve unlocked the fierce Wildcat! A perfect game. Fractions multiply and shrink when they hear you coming.';
   TIERS[5].fline = 'You’ve unlocked the fierce Wildcat! A perfect game. Fractions shrink to simplest terms when they hear you coming.';
   function tierFor(p) {
     var l = p >= 100 ? 5 : p >= 90 ? 4 : p >= 75 ? 3 : p >= 55 ? 2 : p >= 35 ? 1 : 0;
@@ -1224,7 +1338,7 @@
         '<span class="rarity">' + tier.rarity + '</span>' +
         '<div class="emoji" aria-hidden="true">' + tier.emoji + '</div>' +
         '<h3>' + tier.name + '</h3>' +
-        '<p>' + ((MODE === 'fractions' && tier.fline) || tier.line) + '</p>' +
+        '<p>' + ((MODE === 'multiply' && tier.mline) || (MODE !== 'primes' && tier.fline) || tier.line) + '</p>' +
         '<span class="newtag">' + (isNew ? 'New card!' : 'Already in your collection') + '</span>' +
       '</div>';
     var coll =
@@ -1235,7 +1349,7 @@
       }).join('') +
       '</div><p class="hint">Cat cards collected: ' + owned.length + ' of ' + TIERS.length + '</p>';
     var review = '';
-    if (MODE === 'fractions') {
+    if (MODE !== 'primes') {
       review = fracReview();
     } else if (G.missed.length) {
       review = '<p>Numbers to practice:</p><ul class="review">' +
@@ -1252,7 +1366,7 @@
         prize + coll + '<h2>' + headline + '</h2>' +
         '<div class="big">' + total + ' points</div>' +
         '<p>' + G.points + ' of ' + G.max + ' base points + ' + G.bonus + ' bonus points' + (newBest && prevBest !== null ? ' (a new best!)' : prevBest !== null ? ' (best: ' + prevBest + ')' : '') + '</p>' +
-        '<div class="badges"><span class="badge streak">🔥 Best streak: ' + G.maxStreak + '</span><span class="badge power">' + (MODE === 'fractions' ? '✂️ Sharp claws: ' : '⚡ Power-ups: ') + G.powerCount + '</span></div>' +
+        '<div class="badges"><span class="badge streak">🔥 Best streak: ' + G.maxStreak + '</span><span class="badge power">' + (MODE !== 'primes' ? '✂️ Sharp claws: ' : '⚡ Power-ups: ') + G.powerCount + '</span></div>' +
         review +
         '<div class="actions"><button class="btn go" id="again">Play again</button><button class="btn ghost" id="menu">Change level</button></div>' +
       '</section>';
